@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat with Your Automotive Agent</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .container {
+      background-color: #1f1f1f;
+      border-radius: 10px;
+      padding: 20px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+    }
+    .button {
+      background-color: #03dac5;
+      color: #121212;
+      border: none;
+      padding: 15px 20px;
+      font-size: 1rem;
+      border-radius: 25px;
+      cursor: pointer;
+      margin: 10px;
+      width: 80%;
+    }
+    .button:disabled {
+      background-color: #555555;
+      color: #aaaaaa;
+      cursor: not-allowed;
+    }
+    .button:hover:not(:disabled) {
+      background-color: #018786;
+    }
+    audio {
+      margin-top: 20px;
+      width: 100%;
+      border-radius: 10px;
+    }
+    footer {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: #aaaaaa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Chat with Your Automotive Agent</h1>
+    <button class="button" id="startRecord">Start Recording</button>
+    <button class="button" id="stopRecord" disabled>Stop Recording</button>
+    <button class="button" id="playResponse" disabled>Play API Response</button>
+    <audio id="audioPlayer" controls></audio>
+    <footer>Dummy Android Auto</footer>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let recordedChunks = [];
+    const startRecordButton = document.getElementById('startRecord');
+    const stopRecordButton = document.getElementById('stopRecord');
+    const playResponseButton = document.getElementById('playResponse');
+    const audioPlayer = document.getElementById('audioPlayer');
+
+    // Start Recording
+    startRecordButton.addEventListener('click', async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+
+        recordedChunks = [];
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(recordedChunks, { type: 'audio/mpeg' });
+          sendAudioToAPI(audioBlob);
+        };
+
+        mediaRecorder.start();
+        startRecordButton.disabled = true;
+        stopRecordButton.disabled = false;
+      } catch (error) {
+        alert('Could not access microphone: ' + error.message);
+      }
+    });
+
+    // Stop Recording
+    stopRecordButton.addEventListener('click', () => {
+      mediaRecorder.stop();
+      startRecordButton.disabled = false;
+      stopRecordButton.disabled = true;
+    });
+
+    // Send Audio to API
+    async function sendAudioToAPI(audioBlob) {
+      try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'recording.mp3');
+
+        const response = await fetch('https://ai-chatbot-cloud-tmp-b6hn5n.yn8ixf.gbr-e1.cloudhub.io/stot', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch the audio response');
+        }
+
+        const audioResponseBlob = await response.blob();
+
+        // Create a URL for the audio response and enable play button
+        const audioURL = URL.createObjectURL(audioResponseBlob);
+        audioPlayer.src = audioURL;
+        playResponseButton.disabled = false;
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Play API Response
+    playResponseButton.addEventListener('click', () => {
+      audioPlayer.play();
+    });
+  </script>
+</body>
+</html>

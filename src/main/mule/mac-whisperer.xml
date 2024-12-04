@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:tracing="http://www.mulesoft.org/schema/mule/tracing"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:ftp="http://www.mulesoft.org/schema/mule/ftp" xmlns:ms-aichain="http://www.mulesoft.org/schema/mule/ms-aichain" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:whisperer="http://www.mulesoft.org/schema/mule/whisperer" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/whisperer http://www.mulesoft.org/schema/mule/whisperer/current/mule-whisperer.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ms-aichain http://www.mulesoft.org/schema/mule/ms-aichain/current/mule-ms-aichain.xsd
+http://www.mulesoft.org/schema/mule/ftp http://www.mulesoft.org/schema/mule/ftp/current/mule-ftp.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/tracing http://www.mulesoft.org/schema/mule/tracing/current/mule-tracing.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<ms-aichain:config name="MuleSoft_AI_Chain_Config" llmType="OPENAI" configType="Configuration Json" modelName="gpt-4o" doc:name="MuleSoft AI Chain Config" doc:id="059db69c-73fc-4670-9067-2e238bfc603e" filePath='#[mule.home ++ "/apps/" ++ app.name ++ "/envVars.json"]' />
+	
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="96f16c7a-ca30-4c68-9f7a-14878f574914" >
+		<http:listener-connection host="0.0.0.0" port="8081" >
+		
+		</http:listener-connection>
+	</http:listener-config>
+	<whisperer:config name="MAC_Whisperer_Config" doc:name="MAC Whisperer Config" doc:id="f49df607-80ac-4ca0-9df7-cf637dd3d997" apiKey=""/>
+	<file:config name="File_Config" doc:name="File Config" doc:id="ae0ebc80-0615-42d1-8d6f-ea4c0bff08ab" />
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="41a89a81-27c7-4405-a60a-eda61810afe3" >
+		<salesforce:basic-connection username="@salesforce.com" password="" />
+	</salesforce:sfdc-config>
+	<flow name="action" doc:id="0252af70-e4c7-4f14-8c66-0dda3ab49096" >
+		<ee:transform doc:name="Transform Message" doc:id="d5f5fa31-7cb2-481b-ae13-b59f30676fff" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+'Tell me in 1 word just yes or no if customer is complaining about something not working' ++ (vars.fromUser default 'create a cases')]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ms-aichain:chat-answer-prompt doc:name="Chat answer prompt" doc:id="2a0f5054-2508-48d5-9caf-6156716b0086" config-ref="MuleSoft_AI_Chain_Config"/>
+		<choice doc:name="Choice" doc:id="5ab45a25-714d-4ffb-b9e6-462e16425013" >
+			<when expression="#[payload.response contains ('Yes')]">
+				<ee:transform doc:name="Transform Message" doc:id="f2cecf48-0fb9-49ea-8cf7-d6331a0a4591">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+[{
+	External_Id__c: correlationId,
+	Description: vars.fromUser	
+}]]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<salesforce:upsert doc:name="Upsert" doc:id="e520b47a-9756-4543-81e0-0964c74f030a" config-ref="Salesforce_Config" objectType="Case" externalIdFieldName="External_ID__c"/>
+				<ee:transform doc:name="Transform Message" doc:id="69d5d1b8-38df-4820-9731-b7dca6a4f971" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+response:'I have Registered your complaint someone from team will call you shortly'
+
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="a9d71ae1-1abc-44fc-8f12-7756369c3670" message="not a complaint"/>
+				<set-payload value="#[vars.fromUser]" doc:name="Set Payload" doc:id="cc193a5b-8446-4358-bd64-a329d4d0d887" />
+				<try doc:name="Try" doc:id="d21eefa9-c45d-4508-8ed2-58faebc67f3a">
+			<ms-aichain:chat-answer-prompt doc:name="Call SF Agents" doc:id="c2a2140d-d78f-4cf2-a026-9f41704ea833" config-ref="MuleSoft_AI_Chain_Config" />
+			<error-handler>
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="e07df294-0ec2-434c-891c-2a732e62f78f">
+					<ee:transform doc:name="Transform Message" doc:id="2e1fbaa6-3b3e-4982-b24f-2f6f89338770">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message" : "some error in conversion please check mulesoft"
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</on-error-continue>
+			</error-handler>
+		</try>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="mac-whispererFlow" doc:id="609fd75a-f595-41b9-98c2-4ac522dd9f98" >
+		<http:listener doc:name="getCarAudio" doc:id="475d14ca-fb8e-4df0-bfcf-6ad7be071764" config-ref="HTTP_Listener_config" path="/stot">
+			<http:response >
+				<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Access-Control-Allow-Origin" : "*",
+	"Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+	"Access-Control-Allow-Headers": "Content-Type"
+}]]]></http:headers>
+			</http:response>
+		</http:listener>
+		 <set-variable variableName="fileName" value="#[attributes.headers['file-name']]" doc:name="Set File Name"/>
+    <set-payload value="#[payload.parts.file.content]" doc:name="setPayload"/>
+		<file:write doc:name="writeAudioFile" doc:id="64d85b9f-4074-419b-9ab0-60ef430fd74d" path="#['/tmp/hello.mp3']" config-ref="File_Config"/>
+		<whisperer:speech-to-text doc:name="convertCarAudioToText" doc:id="8dc5bc9f-2207-436f-9adf-f9dfa56efada" config-ref="MAC_Whisperer_Config" audioFilePath="/tmp/hello.mp3"/>
+		<ee:transform doc:name="transform_Text_to_Answer" doc:id="89750645-e48a-4ba6-b3da-04eb2325880c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload.text]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="fromUser" ><![CDATA[%dw 2.0
+output application/json
+---
+payload.text]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="action" doc:id="e60fe96d-21b2-448c-8e05-6a7cfe862ac5" name="action"/>
+		<flow-ref doc:name="callTextToSpeechAPI" doc:id="a13073a1-3935-41aa-8adf-9b0016e7fa39" name="mac-whispererFlow1" targetValue="#[payload.response]" />
+		<!-- [STUDIO:"Async"]<async doc:name="Async" doc:id="2f115c0f-c5d0-4c50-9776-489dd1707a6c" >
+			<logger level="INFO" doc:name="Logger" doc:id="dda8368c-4374-4744-aa03-753a83ab1b17" message="#[payload&#93;"/>
+		</async> [STUDIO] -->
+	</flow>
+	<flow name="mac-whispererFlow2" doc:id="2f78890b-8f8a-415a-ad83-e710101a1fe6" >
+		<http:listener doc:name="Listener" doc:id="1b9208c3-639c-4ea4-b42d-6049ac88d38b" config-ref="HTTP_Listener_config" path="/website"/>
+		<http:load-static-resource doc:name="Load static resource" doc:id="843deef9-c6e6-4d9b-b85a-1942cec0a898" resourceBasePath="#[p('app.home')]" defaultFile="RecorderOnline.html"/>
+	</flow>
+	<flow name="mac-whispererFlow1" doc:id="5422a224-86d2-4a27-99eb-1988ffa2f479" >
+		<http:listener doc:name="Listener" doc:id="02ef5367-6f18-4feb-9c0c-121ba598a8ab" config-ref="HTTP_Listener_config" path="/ttos"/>
+		<whisperer:text-to-speech doc:name="Text to speech" doc:id="ddc35906-7401-4612-b274-a550d1636e22" config-ref="MAC_Whisperer_Config" textToConvert="#[payload.response]" pathToOutputFile="#['/tmp/'++   'hello.mp3']"/>
+		<file:read doc:name="Read" doc:id="2670c849-220c-40ce-ae75-e8d15c830188" config-ref="File_Config" path="/tmp/hello.mp3"/>
+		<set-payload value="#[payload]" doc:name="Set Payload" doc:id="1f7bd2d4-66d9-4269-a657-8331da8a8ff3" mimeType='application/octet-stream; content-type="audio/mpeg"; content-disposition="attachment; filename=hello.mp3"'/>
+	</flow>
+</mule>

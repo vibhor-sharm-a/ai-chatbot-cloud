@@ -1,0 +1,7 @@
+%dw 2.0
+
+type auto_5422a224_86d2_4a27_99eb_1988ffa2f479_Input_Payload = {
+  response?: String, 
+  _?: Any
+}
+
